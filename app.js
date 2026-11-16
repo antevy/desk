@@ -1,9 +1,12 @@
-import { drawLine } from "./chart.js";
+import { drawLine, drawEquity, drawSpark } from "./chart.js";
 
 const OWNER = "antevy";
 const REPO = "desk";
 const DATA_REF = "data";
 const KEY_LS = "desk.app.k";
+const ATH_LS = "desk.app.ath";
+// 60s matches app_publish.PUBLISH_INTERVAL_S. The watch app reads state via
+// unauthenticated api.github.com (60 req/hour), so 20s would trip the rate limit.
 const POLL_MS = 60_000;
 
 export function b64urlToBytes(s) {
@@ -77,7 +80,8 @@ function priceText(n) {
   const v = Number(n);
   if (v >= 1) return v.toFixed(4);
   if (v <= 0) return String(v);
-  return v.toPrecision(6);
+  if (v >= 0.0001) return v.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  return v.toExponential(2).replace("e+", "e").replace("e-0", "e-");
 }
 
 function pnlClass(n) {
@@ -178,10 +182,26 @@ const BOT_ICONS = {
   risk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2 5 6.2v5.2c0 4.2 2.8 7.3 7 8.6 4.2-1.3 7-4.4 7-8.6V6.2L12 3.2z"/><path d="M9.2 12.1 11 14l3.8-4.2"/></svg>',
 };
 
+const BOT_COLORS = {
+  scanner: "#3b82f6",
+  analyst: "#22d3ee",
+  social: "#38bdf8",
+  brain: "#a855f7",
+  executor: "#facc15",
+  risk: "#f43f5e",
+};
+
+const CURSOR_SVG = '<svg viewBox="0 0 12 16" width="12" height="16" aria-hidden="true"><path d="M1 1l10 9.2-4.2.2 2.2 4.4-2.2 1.2-2.3-4.5-3.5 3.2z" fill="currentColor" stroke="#fff" stroke-width="0.7" stroke-linejoin="round"/></svg>';
+
 function botIcon(id, status) {
   const svg = BOT_ICONS[id] || BOT_ICONS.scanner;
   const tone = status === "running" ? "running" : (status || "idle");
   return `<span class="bot-icon ${escapeHtml(tone)}">${svg}</span>`;
+}
+
+function botIco(id) {
+  const svg = BOT_ICONS[id] || BOT_ICONS.scanner;
+  return `<span class="bot-ico ${escapeHtml(id)}">${svg}</span>`;
 }
 
 function pctText(n) {
@@ -191,121 +211,339 @@ function pctText(n) {
   return `${sign}${Math.abs(v).toFixed(1)}%`;
 }
 
+function tickText(el, nextText, numeric, format) {
+  if (!el) return;
+  if (numeric == null || Number.isNaN(Number(numeric))) {
+    el.textContent = nextText;
+    el._num = null;
+    return;
+  }
+  const target = Number(numeric);
+  const prev = el._num;
+  if (prev == null || prev === target) {
+    el.textContent = nextText;
+    el._num = target;
+    return;
+  }
+  const startVal = prev;
+  const t0 = performance.now();
+  const dur = 550;
+  const step = (now) => {
+    const p = Math.min(1, (now - t0) / dur);
+    const eased = 1 - (1 - p) ** 3;
+    const cur = startVal + (target - startVal) * eased;
+    el.textContent = format(cur);
+    if (p < 1) requestAnimationFrame(step);
+    else {
+      el.textContent = nextText;
+      el._num = target;
+    }
+  };
+  requestAnimationFrame(step);
+  el._num = target;
+}
+
+let homeTf = "live";
+let acctTf = "24h";
+let seenFeedIds = new Set();
+let feedReady = false;
+
+function showPage(id) {
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-page") === id));
+  document.querySelectorAll("main .page").forEach((p) => p.classList.toggle("on", p.id === `page-${id}`));
+}
+
+function bindNav() {
+  document.querySelectorAll(".nav button").forEach((btn) => {
+    btn.addEventListener("click", () => showPage(btn.getAttribute("data-page")));
+  });
+  document.querySelectorAll("[data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => showPage(btn.getAttribute("data-goto")));
+  });
+  document.getElementById("tf-pills")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("button[data-tf]");
+    if (!btn) return;
+    homeTf = btn.getAttribute("data-tf");
+    document.querySelectorAll("#tf-pills button").forEach((b) => b.classList.toggle("on", b === btn));
+    if (window.__deskState) paintHomeChart(window.__deskState);
+  });
+  document.getElementById("acct-tf")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("button[data-tf]");
+    if (!btn) return;
+    acctTf = btn.getAttribute("data-tf");
+    document.querySelectorAll("#acct-tf button").forEach((b) => b.classList.toggle("on", b === btn));
+    if (window.__deskState) paintAcctChart(window.__deskState);
+  });
+}
+
+function paintHomeChart(state) {
+  const curves = state.equity_curves || {};
+  const key = homeTf === "live" ? "live" : homeTf;
+  const points = curves[key] || curves.live || (state.pnl_points || []).map((p, i) => ({ t: i, v: p.value }));
+  const first = points[0]?.v;
+  const last = points[points.length - 1]?.v;
+  const color = last == null || first == null || last >= first ? "#00e87a" : "#ff4d55";
+  drawEquity(document.getElementById("chart-pnl"), points, {
+    color,
+    markers: state.chart_markers || [],
+    animate: true,
+    tf: key,
+  });
+}
+
+function paintAcctChart(state) {
+  const curves = state.equity_curves || {};
+  const key = acctTf;
+  const points = curves[key] || curves.all || [];
+  const first = points[0]?.v;
+  const last = points[points.length - 1]?.v;
+  const color = last == null || first == null || last >= first ? "#00e87a" : "#ff4d55";
+  drawEquity(document.getElementById("chart-acct"), points, { color, markers: state.chart_markers || [], animate: true, tf: `acct-${key}` });
+}
+
+function paintMiniScreen(state) {
+  const frame = document.getElementById("screen-frame");
+  const img = document.getElementById("screen-img");
+  const canvas = document.getElementById("screen-mini");
+  const tag = document.getElementById("acting-tag");
+  const cap = document.getElementById("screen-caption");
+  const screen = state.screen || {};
+  const acting = state.acting || {};
+  if (tag) tag.textContent = acting.tag || acting.action || "Desk · watching";
+
+  const last = state.last_action || {};
+  if (cap) {
+    const text = last.text || "Watching · no trades yet · PAPER";
+    cap.innerHTML = escapeHtml(text).replace("verified ✓", '<span class="ok">verified ✓</span>');
+  }
+
+  const allowedShot = !!(screen.included && screen.data_url && (screen.page_kind == null || screen.page_kind === "coin"));
+  if (tag) tag.hidden = !allowedShot;
+  if (allowedShot) {
+    if (frame) frame.classList.add("has-shot");
+    if (img) {
+      img.hidden = false;
+      img.src = screen.data_url;
+      img.alt = screen.alt || "Still picture of the desk on a FOMO coin page.";
+    }
+    return;
+  }
+  if (frame) frame.classList.remove("has-shot");
+  if (img) {
+    img.hidden = true;
+    img.removeAttribute("src");
+  }
+  drawMini(canvas, state);
+}
+
+function drawMini(canvas, state) {
+  if (!canvas) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = canvas.clientWidth || 358;
+  const cssH = canvas.clientHeight || 168;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = "#07070a";
+  ctx.fillRect(0, 0, w, h);
+
+  // Left pane: real sparkline if we have prices. Never invent a path.
+  const focus = state.focus || {};
+  const spark = Array.isArray(focus.sparkline) ? focus.sparkline.map(Number).filter(Number.isFinite) : [];
+  const paneW = Math.round(w * 0.68);
+  ctx.fillStyle = "#0b0d14";
+  ctx.fillRect(0, 0, paneW, h);
+
+  // faint grid
+  ctx.strokeStyle = "#181b24";
+  ctx.lineWidth = dpr;
+  for (let i = 1; i < 4; i += 1) {
+    const y = (h / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(paneW, y); ctx.stroke();
+  }
+
+  if (spark.length >= 2) {
+    const min = Math.min(...spark), max = Math.max(...spark);
+    const span = max - min || 1;
+    const up = spark[spark.length - 1] >= spark[0];
+    const padX = 10 * dpr, padY = 28 * dpr;
+    ctx.beginPath();
+    spark.forEach((v, i) => {
+      const x = padX + (i / (spark.length - 1)) * (paneW - padX * 2);
+      const y = h - padY - ((v - min) / span) * (h - padY * 1.4 - 8 * dpr);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = up ? "#00e87a" : "#ff4d55";
+    ctx.lineWidth = 1.8 * dpr;
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "#636366";
+    ctx.font = `500 ${11 * dpr}px -apple-system, sans-serif`;
+    ctx.fillText("No price yet", 14 * dpr, h / 2);
+  }
+
+  const fs = 11 * dpr;
+  ctx.font = `700 ${13 * dpr}px -apple-system, sans-serif`;
+  ctx.fillStyle = "#f5f5f7";
+  const sym = focus.symbol || "";
+  ctx.fillText(sym, 12 * dpr, 18 * dpr);
+  if (focus.last_price != null) {
+    ctx.font = `600 ${11 * dpr}px -apple-system, sans-serif`;
+    ctx.fillStyle = "#8e8e93";
+    ctx.fillText(priceText(focus.last_price), 12 * dpr + ctx.measureText(sym + "  ").width, 18 * dpr);
+  }
+
+  // Right pane: current desk action. No fake trade tickets.
+  ctx.fillStyle = "#0e1018";
+  ctx.fillRect(paneW, 0, w - paneW, h);
+  ctx.fillStyle = "#f5f5f7";
+  ctx.font = `700 ${10 * dpr}px -apple-system, sans-serif`;
+  const acting = state.acting || {};
+  const lines = String(acting.tag || acting.action || "watching").split(" · ");
+  let y = 22 * dpr;
+  lines.forEach((ln) => {
+    ctx.fillText(ln, paneW + 10 * dpr, y);
+    y += 14 * dpr;
+  });
+  ctx.fillStyle = "#00e87a";
+  ctx.font = `600 ${9 * dpr}px -apple-system, sans-serif`;
+  ctx.fillText(state.mode || "PAPER", paneW + 10 * dpr, h - 12 * dpr);
+}
+
+function cursorFor(bot) {
+  if ((bot.status || "") !== "running") return "";
+  const color = BOT_COLORS[bot.id] || "#8e8e93";
+  return `<span class="bot-cursor" style="color:${color}">${CURSOR_SVG}</span>`;
+}
+
+function botRow(b, { detailed = false } = {}) {
+  const metric = b.metric_text || "";
+  const metricClass = /blocked/i.test(metric) ? "blocked" : "";
+  const actions = detailed
+    ? (b.last_actions || []).slice(0, 3).map((a) => {
+        const ts = (a.ts_text || "").replace(/^[A-Za-z]{3} [A-Za-z]{3} \d+, \d+, /, "").replace(/:(\d{2}) (?=[AP]M)/, " ");
+        return `<li>${escapeHtml(a.text)}${ts ? ` <span class="meta">· ${escapeHtml(ts)}</span>` : ""}</li>`;
+      }).join("")
+    : "";
+  return `
+    <div class="bot-row">
+      ${botIco(b.id)}
+      <div class="bot-mid">
+        <span class="name">${escapeHtml(b.label || b.id)}</span>
+        <p class="action">${escapeHtml(b.current_action || "—")}</p>
+      </div>
+      <div class="bot-right ${metricClass}">${escapeHtml(metric)}</div>
+      ${actions ? `<ul class="actions">${actions}</ul>` : ""}
+      ${cursorFor(b)}
+    </div>
+  `;
+}
+
+const FEED_ICONS = {
+  buy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>',
+  reentry: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>',
+  sell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>',
+  reject: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M8 12.5l2.5 2.5 5-5.5"/></svg>',
+  status: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 5v2M12 17v2M5 12h2M17 12h2"/></svg>',
+};
+
+function feedRow(item, { animate = false } = {}) {
+  const tone = item.tone || "muted";
+  const typ = item.type || "check";
+  const icon = FEED_ICONS[typ] || FEED_ICONS.check;
+  const title = item.title || "";
+  const href = item.url || "";
+  const titleHtml = href
+    ? `<a class="title ${escapeHtml(tone)}" href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
+    : `<span class="title ${escapeHtml(tone)}">${escapeHtml(title)}</span>`;
+  const amt = item.amount_text || "";
+  const pnl = item.pnl_text || (item.pnl_usd != null ? money(item.pnl_usd) : "");
+  const pnlClassName = pnlClass(item.pnl_usd != null ? item.pnl_usd : (item.pnl_pct != null ? item.pnl_pct : 0));
+  return `
+    <div class="feed-row${animate ? " in" : ""}" data-id="${escapeHtml(item.id || "")}">
+      <span class="feed-ico ${escapeHtml(tone)}">${icon}</span>
+      <div class="feed-mid">
+        ${titleHtml}
+        <p class="sub">${escapeHtml(item.subtitle || "")}</p>
+      </div>
+      <div class="feed-right">
+        <span class="amt ${tone === "good" || typ === "buy" || typ === "reentry" ? "pos" : tone === "bad" ? "neg" : ""}">${escapeHtml(amt)}</span>
+        ${pnl ? `<span class="pnl ${pnlClassName}">${escapeHtml(pnl)}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderFeed(id, items, { limit } = {}) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  const rows = limit ? items.slice(0, limit) : items;
+  if (!rows.length) {
+    box.innerHTML = '<p class="empty">No desk activity yet.</p>';
+    return;
+  }
+  const html = rows.map((it) => feedRow(it, { animate: feedReady && !seenFeedIds.has(it.id) })).join("");
+  box.innerHTML = html;
+}
+
+function renderBotsList(id, bots, opts) {
+  const box = document.getElementById(id);
+  if (!box) return;
+  if (!bots.length) {
+    box.innerHTML = '<p class="empty">No bot status yet.</p>';
+    return;
+  }
+  box.innerHTML = bots.map((b) => botRow(b, opts)).join("");
+}
+
 function renderHome(state) {
   const badge = document.getElementById("mode-badge");
   if (badge) {
     badge.textContent = state.mode || "PAPER";
     badge.classList.toggle("live", (state.mode || "") === "LIVE");
   }
-  const equityEl = document.getElementById("equity");
-  if (equityEl) {
-    equityEl.textContent = state.equity_text || money(state.equity);
-    equityEl.className = `equity ${pnlClass(state.total_pnl)}`;
+  const openEl = document.getElementById("open-count");
+  if (openEl) {
+    const n = state.open_count ?? (state.open_positions || []).length;
+    openEl.textContent = `${n} open`;
   }
+  const equityEl = document.getElementById("equity");
+  tickText(equityEl, state.equity_text || money(state.equity), state.equity, (v) => money(v));
+
   const todayEl = document.getElementById("today-pnl");
   if (todayEl) {
     const dollar = state.today_pnl_text || money(state.today_pnl);
     const pct = state.today_pnl_pct_text || pctText(state.today_pnl_pct);
-    todayEl.textContent = pct ? `Today ${dollar} (${pct})` : `Today ${dollar}`;
+    const arrow = (state.today_pnl || 0) > 0 ? "▲ " : (state.today_pnl || 0) < 0 ? "▼ " : "";
+    todayEl.textContent = pct ? `${arrow}${dollar} (${pct})` : `${arrow}${dollar}`;
     todayEl.className = `today ${pnlClass(state.today_pnl)}`;
   }
-  const cash = document.getElementById("paper-cash");
-  if (cash) cash.textContent = state.paper_cash_text || money(state.paper_cash);
-  const realized = document.getElementById("realized-pnl");
-  if (realized) {
-    realized.textContent = state.realized_pnl_text || money(state.realized_pnl);
-    realized.className = `value ${pnlClass(state.realized_pnl)}`;
-  }
-  const unreal = document.getElementById("unrealized-pnl");
-  if (unreal) {
-    unreal.textContent = state.unrealized_pnl_text || money(state.unrealized_pnl);
-    unreal.className = `value ${pnlClass(state.unrealized_pnl)}`;
-  }
-  const values = (state.pnl_points || []).map((p) => Number(p.value));
-  drawLine(document.getElementById("chart-pnl"), values, (state.total_pnl || 0) >= 0 ? "#50c878" : "#ef5b5b");
-
-  const screenCard = document.getElementById("screen-card");
-  const img = document.getElementById("screen-img");
-  const cap = document.getElementById("screen-caption");
-  const screen = state.screen || {};
-  // Keep the still off Home so money, holdings and the bot row fit on a phone.
-  if (screenCard) screenCard.hidden = true;
-
-  const box = document.getElementById("positions");
-  const positions = state.open_positions || [];
-  if (box) {
-    if (!positions.length) {
-      box.innerHTML = '<p class="empty">Nothing held right now.</p>';
-    } else {
-      box.innerHTML = positions.map((p) => `
-        <div class="hold-row">
-          <div class="hold-top">
-            <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.symbol || p.mint)}</a>
-            <span class="${pnlClass(p.pnl_usd)}">${p.pnl_usd == null ? "—" : money(p.pnl_usd)}</span>
-          </div>
-          <div class="hold-meta">Entry ${p.entry == null ? "—" : priceText(p.entry)} · Now ${p.now == null ? "—" : priceText(p.now)} · Size ${p.size_usd == null ? "—" : money(p.size_usd)} · ${escapeHtml(p.age_text || "")}</div>
-        </div>
-      `).join("");
-    }
+  const multEl = document.getElementById("equity-mult");
+  if (multEl) {
+    const m = state.equity_mult_text || "1.00x";
+    multEl.textContent = m;
+    multEl.classList.toggle("down", Number(state.equity_mult || 1) < 1);
   }
 
-  const tradesBox = document.getElementById("home-trades");
-  const trades = state.recent_trades || [];
-  if (tradesBox) {
-    if (!trades.length) {
-      tradesBox.innerHTML = '<p class="empty">No trades yet.</p>';
-    } else {
-      tradesBox.innerHTML = trades.map((t) => `
-        <div class="hold-row">
-          <div class="hold-top">
-            <div><span class="side ${(t.side || "").toLowerCase()}">${escapeHtml(t.side || "")}</span> <a href="${escapeHtml(t.url)}" target="_blank" rel="noopener">${escapeHtml(t.symbol || t.mint)}</a></div>
-            <span class="${pnlClass(t.pnl_usd)}">${escapeHtml(t.result || (t.pnl_usd == null ? "—" : money(t.pnl_usd)))}</span>
-          </div>
-          <div class="hold-meta">${escapeHtml(t.ts_text || "")}${t.source ? " · " + escapeHtml(t.source) : ""}${t.reason ? " · " + escapeHtml(t.reason) : ""}</div>
-        </div>
-      `).join("");
-    }
-  }
+  paintHomeChart(state);
+  paintMiniScreen(state);
 
-  const homeBots = document.getElementById("home-bots");
-  if (homeBots) {
-    const bots = state.bots || [];
-    homeBots.innerHTML = bots.map((b) => `
-      <div class="bot-tile">
-        <div class="bot-tile-head">
-          ${botIcon(b.id, b.status)}
-          <span class="name">${escapeHtml(b.label || b.id)}</span>
-          <span class="pill ${escapeHtml(b.status || "idle")}">${escapeHtml(b.status || "idle")}</span>
-        </div>
-        <p class="action">${escapeHtml(b.current_action || "—")}</p>
-        <p class="beat">${escapeHtml(b.heartbeat_age_text || "no heartbeat")}</p>
-      </div>
-    `).join("");
-  }
+  const running = state.running_count ?? (state.bots || []).filter((b) => b.status === "running").length;
+  const runText = `${running} running`;
+  const runA = document.getElementById("bots-running");
+  const runB = document.getElementById("bots-running-page");
+  if (runA) runA.textContent = runText;
+  if (runB) runB.textContent = runText;
+
+  renderBotsList("home-bots", state.bots || []);
+  renderFeed("home-feed", state.feed || [], { limit: 6 });
 }
 
 function renderBots(state) {
-  const box = document.getElementById("bots");
-  if (!box) return;
-  const bots = state.bots || [];
-  if (!bots.length) {
-    box.innerHTML = '<p class="empty">No bot status yet.</p>';
-    return;
-  }
-  box.innerHTML = bots.map((b) => {
-    const actions = (b.last_actions || []).map((a) => `<li>${escapeHtml(a.text)}${a.ts_text ? ` <span class="meta">· ${escapeHtml(a.ts_text)}</span>` : ""}</li>`).join("");
-    return `
-      <div class="card">
-        <div class="bot-head">
-          <h2>${escapeHtml(b.label || b.id)}</h2>
-          <span class="pill ${escapeHtml(b.status || "idle")}">${escapeHtml(b.status || "idle")}</span>
-        </div>
-        <p class="meta">Heartbeat ${escapeHtml(b.heartbeat_age_text || "no heartbeat")}${b.heartbeat_text ? ` · ${escapeHtml(b.heartbeat_text)}` : ""}</p>
-        <p class="action">${escapeHtml(b.current_action || "—")}</p>
-        ${actions ? `<ul class="actions">${actions}</ul>` : '<p class="muted">No recent actions.</p>'}
-      </div>
-    `;
-  }).join("");
+  renderBotsList("bots", state.bots || [], { detailed: true });
 }
 
 function renderTrades(state) {
@@ -313,11 +551,11 @@ function renderTrades(state) {
   if (!box) return;
   const orders = state.orders || [];
   if (!orders.length) {
-    box.innerHTML = '<p class="empty">No trades yet. The desk hasn\'t run a night.</p>';
+    box.innerHTML = '<p class="empty">No trades yet. The desk hasn\'t placed a paper order.</p>';
     return;
   }
   box.innerHTML = orders.map((o) => `
-    <div class="card trade">
+    <div class="trade">
       <div class="top">
         <div>
           <span class="side ${(o.side || "").toLowerCase()}">${escapeHtml(o.side || "")}</span>
@@ -336,53 +574,27 @@ function renderTrades(state) {
   `).join("");
 }
 
-function renderList(id, rows, empty, line) {
-  const box = document.getElementById(id);
-  if (!box) return;
-  if (!rows || !rows.length) {
-    box.innerHTML = `<p class="empty">${empty}</p>`;
-    return;
-  }
-  box.innerHTML = rows.map(line).join("");
+function renderActivity(state) {
+  renderFeed("feed", state.feed || []);
+  renderTrades(state);
 }
 
-function renderActivity(state) {
-  renderList("scans", state.scans, "No scans yet.", (s) => `
-    <div class="row">
-      <div>
-        <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.symbol || s.mint)}</a>
-        <div class="meta">${escapeHtml(s.ts_text || "")}${s.source ? " · " + escapeHtml(s.source) : ""}</div>
+function holdRow(p) {
+  return `
+    <div class="hold-row">
+      <div class="hold-top">
+        <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.symbol || p.mint)}</a>
+        <span class="${pnlClass(p.pnl_usd)}">${p.pnl_usd == null ? "—" : money(p.pnl_usd)}</span>
       </div>
-      <div class="right">
-        <div class="${(s.verdict || "") === "pass" ? "pos" : "neg"}">${escapeHtml(s.verdict || "")}</div>
-        <div class="meta">${escapeHtml(s.reason || "")}</div>
-      </div>
+      <div class="hold-meta">${[
+        p.entry == null ? null : `Entry ${priceText(p.entry)}`,
+        p.now == null ? null : `Now ${priceText(p.now)}`,
+        p.size_usd == null ? null : `Size ${money(p.size_usd)}`,
+        p.age_text || p.hold_text || "",
+        p.exit_reason || "",
+      ].filter(Boolean).map(escapeHtml).join(" · ")}</div>
     </div>
-  `);
-  renderList("audits", state.audits, "No audits yet.", (a) => `
-    <div class="row">
-      <div>
-        <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.symbol || a.mint)}</a>
-        <div class="meta">Layer ${escapeHtml(a.layer)} · ${escapeHtml(a.name || "")}</div>
-      </div>
-      <div class="right">
-        <div class="${a.pass ? "pos" : "neg"}">${a.pass ? "pass" : "fail"}</div>
-        <div class="meta">${escapeHtml(a.value_text || a.ts_text || "")}</div>
-      </div>
-    </div>
-  `);
-  renderList("scores", state.scores, "No scores yet.", (s) => `
-    <div class="row">
-      <div>
-        <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.symbol || s.mint)}</a>
-        <div class="meta">${escapeHtml(s.ts_text || "")}</div>
-      </div>
-      <div class="right">
-        <div class="${s.pass ? "pos" : "neg"}">${s.score == null ? "—" : Number(s.score).toFixed(0)}</div>
-        <div class="meta">${escapeHtml(s.reason || "")}</div>
-      </div>
-    </div>
-  `);
+  `;
 }
 
 function renderAccount(state) {
@@ -396,49 +608,174 @@ function renderAccount(state) {
       : `FOMO @${escapeHtml(name)}`;
   }
   const note = document.getElementById("account-note");
-  if (note && account.fomo_balances_note) {
-    note.textContent = `Read-only. Nothing changes unless you approve it. ${account.fomo_balances_note}`;
+  if (note) {
+    const extra = account.fomo_balances_note ? ` ${account.fomo_balances_note}` : "";
+    note.textContent = `Read-only. Nothing changes unless you approve it.${extra}`;
   }
+  const eq = document.getElementById("acct-equity");
+  tickText(eq, state.equity_text || money(state.equity), state.equity, (v) => money(v));
+  const todayEl = document.getElementById("acct-today");
+  if (todayEl) {
+    const dollar = state.today_pnl_text || money(state.today_pnl);
+    const pct = state.today_pnl_pct_text || pctText(state.today_pnl_pct);
+    const arrow = (state.today_pnl || 0) > 0 ? "▲ " : (state.today_pnl || 0) < 0 ? "▼ " : "";
+    todayEl.textContent = pct ? `${arrow}${dollar} (${pct})` : `${arrow}${dollar}`;
+    todayEl.className = `today ${pnlClass(state.today_pnl)}`;
+  }
+  const multEl = document.getElementById("acct-mult");
+  if (multEl) {
+    multEl.textContent = state.equity_mult_text || "1.00x";
+    multEl.classList.toggle("down", Number(state.equity_mult || 1) < 1);
+  }
+  paintAcctChart(state);
+  const cash = document.getElementById("paper-cash");
+  if (cash) cash.textContent = state.paper_cash_text || money(state.paper_cash);
+  const realized = document.getElementById("realized-pnl");
+  if (realized) {
+    realized.textContent = state.realized_pnl_text || money(state.realized_pnl);
+    realized.className = `value ${pnlClass(state.realized_pnl)}`;
+  }
+  const unreal = document.getElementById("unrealized-pnl");
+  if (unreal) {
+    unreal.textContent = state.unrealized_pnl_text || money(state.unrealized_pnl);
+    unreal.className = `value ${pnlClass(state.unrealized_pnl)}`;
+  }
+  const tc = document.getElementById("trade-count");
+  if (tc) tc.textContent = String(state.trade_count ?? 0);
+  const ah = document.getElementById("avg-hold");
+  if (ah) ah.textContent = state.avg_hold_text || "—";
+  const cc = document.getElementById("closed-count");
+  if (cc) cc.textContent = String(state.closed_count ?? 0);
+  const openN = document.getElementById("acct-open-n");
+  if (openN) {
+    const n = state.open_count ?? (state.open_positions || []).length;
+    openN.textContent = String(n);
+  }
+
+  const box = document.getElementById("positions");
+  const positions = state.open_positions || [];
+  if (box) {
+    box.innerHTML = positions.length
+      ? positions.map(holdRow).join("")
+      : '<p class="empty">Nothing held right now.</p>';
+  }
+  const closedBox = document.getElementById("closed-positions");
+  const closed = state.closed_positions || [];
+  if (closedBox) {
+    closedBox.innerHTML = closed.length
+      ? closed.map(holdRow).join("")
+      : '<p class="empty">No closed positions.</p>';
+  }
+
   const list = document.getElementById("settings-list");
-  if (!list) return;
-  const groups = state.settings_groups || [];
-  if (!groups.length) {
-    list.innerHTML = '<p class="empty">No settings to show.</p>';
+  if (list) {
+    const groups = state.settings_groups || [];
+    if (!groups.length) {
+      list.innerHTML = '<p class="empty">No settings to show.</p>';
+    } else {
+      list.innerHTML = groups.map((g) => `
+        <div class="card">
+          <h2>${escapeHtml(g.name || g.label || "Settings")}</h2>
+          <table class="settings">
+            <thead><tr><th>Setting</th><th>Now</th><th>Default</th></tr></thead>
+            <tbody>
+              ${(g.items || g.rows || []).map((r) => `
+                <tr>
+                  <th>${escapeHtml(r.label || r.key)}</th>
+                  <td>${escapeHtml(r.value || r.display || r.current || "")}</td>
+                  <td>${escapeHtml(r.default || r.default_display || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `).join("");
+    }
+  }
+}
+
+function maybeConfetti(state) {
+  const equity = Number(state.equity || 0);
+  const serverAth = Number(state.equity_ath || equity);
+  let prev;
+  try { prev = parseFloat(localStorage.getItem(ATH_LS) || ""); } catch { prev = NaN; }
+  if (!Number.isFinite(prev)) {
+    try { localStorage.setItem(ATH_LS, String(Math.max(serverAth, equity))); } catch { /* ignore */ }
     return;
   }
-  list.innerHTML = groups.map((g) => `
-    <div class="card">
-      <h2>${escapeHtml(g.name || g.label || "Settings")}</h2>
-      <table class="settings">
-        <thead><tr><th>Setting</th><th>Now</th><th>Default</th></tr></thead>
-        <tbody>
-          ${(g.items || g.rows || []).map((r) => `
-            <tr>
-              <th>${escapeHtml(r.label || r.key)}</th>
-              <td>${escapeHtml(r.value || r.display || r.current || "")}</td>
-              <td>${escapeHtml(r.default || r.default_display || "")}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `).join("");
+  const recentSell = (state.feed || state.recent_trades || []).some((t) => {
+    const typ = (t.type || t.side || "").toLowerCase();
+    return (typ === "sell" || typ === "stop") && (Date.now() / 1000 - Number(t.ts || 0) < 600);
+  });
+  if (recentSell && equity > prev + 1e-9) {
+    fireConfetti();
+    try { localStorage.setItem(ATH_LS, String(equity)); } catch { /* ignore */ }
+  } else if (serverAth > prev) {
+    try { localStorage.setItem(ATH_LS, String(serverAth)); } catch { /* ignore */ }
+  }
+}
+
+function fireConfetti() {
+  const c = document.getElementById("confetti");
+  if (!c) return;
+  c.hidden = false;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  c.width = Math.round(window.innerWidth * dpr);
+  c.height = Math.round(window.innerHeight * dpr);
+  const ctx = c.getContext("2d");
+  const colors = ["#00e87a", "#3b82f6", "#facc15", "#a855f7", "#22d3ee", "#ff4d55"];
+  const bits = Array.from({ length: 80 }, () => ({
+    x: Math.random() * c.width,
+    y: -Math.random() * c.height * 0.3,
+    r: 3 + Math.random() * 5 * dpr,
+    vx: (Math.random() - 0.5) * 3 * dpr,
+    vy: 2 * dpr + Math.random() * 3 * dpr,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    rot: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.2,
+  }));
+  const t0 = performance.now();
+  const step = (now) => {
+    ctx.clearRect(0, 0, c.width, c.height);
+    bits.forEach((b) => {
+      b.x += b.vx; b.y += b.vy; b.rot += b.vr; b.vy += 0.04 * dpr;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(b.rot);
+      ctx.fillStyle = b.color;
+      ctx.fillRect(-b.r, -b.r / 2, b.r * 2, b.r);
+      ctx.restore();
+    });
+    if (now - t0 < 2200) requestAnimationFrame(step);
+    else {
+      ctx.clearRect(0, 0, c.width, c.height);
+      c.hidden = true;
+    }
+  };
+  requestAnimationFrame(step);
 }
 
 function render(state, meta) {
   showApp();
+  window.__deskState = state;
+  const lag = state.generated_at ? Math.max(0, Math.round((Date.now() / 1000) - Number(state.generated_at))) : null;
+  const live = lag != null && lag <= 180;
+  const badge = document.getElementById("live-badge");
+  if (badge) badge.classList.toggle("stale", !live);
   const fresh = document.getElementById("fresh");
   if (fresh) {
-    const when = state.published_at_text || state.generated_at_text || "";
-    const lag = state.generated_at ? Math.max(0, Math.round((Date.now() / 1000) - Number(state.generated_at))) : null;
     const lagText = lag == null ? "" : lag < 60 ? `${lag}s old` : `${Math.round(lag / 60)}m old`;
-    fresh.textContent = [when, lagText, meta && meta.source ? `via ${meta.source}` : ""].filter(Boolean).join(" · ");
+    fresh.textContent = lagText || state.published_at_text || "";
   }
   renderHome(state);
   renderBots(state);
-  renderTrades(state);
   renderActivity(state);
   renderAccount(state);
+  maybeConfetti(state);
+  for (const it of state.feed || []) {
+    if (it.id) seenFeedIds.add(it.id);
+  }
+  feedReady = true;
 }
 
 export async function refresh(key) {
@@ -451,16 +788,6 @@ export async function refresh(key) {
   const state = await decryptEnvelope(envelope, k);
   render(state, { source, ms });
   return state;
-}
-
-function bindNav() {
-  document.querySelectorAll(".nav button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-page");
-      document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b === btn));
-      document.querySelectorAll("main .page").forEach((p) => p.classList.toggle("on", p.id === `page-${id}`));
-    });
-  });
 }
 
 async function boot() {

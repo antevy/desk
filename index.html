@@ -7,12 +7,12 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Desk">
-  <meta name="theme-color" content="#0a0c12">
+  <meta name="theme-color" content="#000000">
   <meta name="robots" content="noindex,nofollow">
   <title>Desk</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/mascot-180.png">
-  <link rel="stylesheet" href="./app.css?v=8">
+  <link rel="stylesheet" href="./app.css?v=9">
 </head>
 <body>
   <div id="lock" class="lock">
@@ -30,96 +30,161 @@
   </div>
 
   <div id="app" hidden>
-    <header>
-      <span class="brand">Desk</span>
-      <span class="badge" id="mode-badge">PAPER</span>
+    <header class="top">
+      <div class="top-left">
+        <img class="mascot" src="./icons/mascot-180.png" width="36" height="36" alt="">
+        <div>
+          <div class="brand-row">
+            <span class="brand">Desk</span>
+            <span class="badge" id="mode-badge">PAPER</span>
+          </div>
+          <p class="open-line" id="open-count">0 open</p>
+        </div>
+      </div>
+      <div class="top-right">
+        <span id="live-badge" class="live-badge on"><i class="dot"></i> Live</span>
+        <p class="fresh" id="fresh">Updating…</p>
+      </div>
     </header>
-    <p class="fresh" id="fresh">Updating…</p>
+
     <main>
       <section id="page-home" class="page on">
-        <div class="money">
-          <div class="equity-block">
-            <span class="label">Paper equity</span>
-            <span class="equity" id="equity">—</span>
+        <div class="balance">
+          <div class="equity" id="equity">—</div>
+          <div class="balance-sub">
             <span class="today" id="today-pnl">—</span>
-          </div>
-          <div class="metrics">
-            <div class="metric">
-              <span class="label">Cash</span>
-              <span class="value" id="paper-cash">—</span>
-            </div>
-            <div class="metric">
-              <span class="label">Realized</span>
-              <span class="value" id="realized-pnl">—</span>
-            </div>
-            <div class="metric">
-              <span class="label">Unrealized</span>
-              <span class="value" id="unrealized-pnl">—</span>
-            </div>
-          </div>
-          <div class="card chart-card">
-            <canvas id="chart-pnl" width="358" height="56"></canvas>
+            <span class="mult" id="equity-mult">1.00x</span>
           </div>
         </div>
-        <div class="card" id="screen-card" hidden>
-          <h2>Screen</h2>
-          <img id="screen-img" alt="" />
-          <p class="muted" id="screen-caption"></p>
+
+        <div class="tf" id="tf-pills" role="tablist" aria-label="Equity timeframe">
+          <button type="button" data-tf="live" class="on">LIVE</button>
+          <button type="button" data-tf="1h">1H</button>
+          <button type="button" data-tf="4h">4H</button>
+          <button type="button" data-tf="1d">1D</button>
+          <button type="button" data-tf="1w">1W</button>
+          <button type="button" data-tf="all">ALL</button>
         </div>
-        <div class="card">
-          <h2>Holding</h2>
-          <div id="positions"><p class="empty">No open positions.</p></div>
+        <div class="chart-wrap">
+          <canvas id="chart-pnl" width="358" height="120"></canvas>
         </div>
-        <div class="card">
-          <h2>Recent trades</h2>
-          <div id="home-trades"><p class="empty">No trades yet.</p></div>
+
+        <div class="live-screen">
+          <div class="ls-head">
+            <span>Live screen</span>
+            <span class="ls-right">Bot's computer</span>
+          </div>
+          <div class="ls-frame" id="screen-frame">
+            <div class="ls-tag" id="acting-tag">Desk · watching</div>
+            <img id="screen-img" alt="" hidden>
+            <canvas id="screen-mini" width="358" height="168"></canvas>
+          </div>
+          <p class="ls-foot" id="screen-caption">Watching · no trades yet · PAPER</p>
         </div>
-        <div class="card bots-home-card">
+
+        <div class="section-head">
           <h2>Bots</h2>
-          <div id="home-bots" class="bots-grid"></div>
+          <span class="running" id="bots-running">0 running</span>
         </div>
+        <div id="home-bots" class="bots-list"></div>
+
+        <div class="section-head">
+          <h2>Activity</h2>
+          <button type="button" class="see-all" data-goto="activity">See all</button>
+        </div>
+        <div id="home-feed" class="feed"></div>
       </section>
 
       <section id="page-bots" class="page">
-        <div id="bots"></div>
-      </section>
-
-      <section id="page-trades" class="page">
-        <div id="trades"><p class="empty">No trades yet.</p></div>
+        <div class="section-head">
+          <h2>Bots</h2>
+          <span class="running" id="bots-running-page">0 running</span>
+        </div>
+        <div id="bots" class="bots-list"></div>
       </section>
 
       <section id="page-activity" class="page">
-        <div class="card">
-          <h2>Scans</h2>
-          <div id="scans"><p class="empty">No scans yet.</p></div>
+        <div class="section-head">
+          <h2>Activity</h2>
         </div>
-        <div class="card">
-          <h2>Audits</h2>
-          <div id="audits"><p class="empty">No audits yet.</p></div>
-        </div>
-        <div class="card">
-          <h2>Scores</h2>
-          <div id="scores"><p class="empty">No scores yet.</p></div>
+        <div id="feed" class="feed"></div>
+        <div class="card trades-card">
+          <h2>Trades</h2>
+          <div id="trades"><p class="empty">No trades yet.</p></div>
         </div>
       </section>
 
       <section id="page-account" class="page">
-        <div class="card">
-          <h2>Account</h2>
-          <p id="account-handle" class="handle"></p>
-          <p class="muted" id="account-note">Read-only. Nothing changes unless you approve it.</p>
+        <div class="acct-head">
+          <img class="mascot lg" src="./icons/mascot-180.png" width="52" height="52" alt="">
+          <div>
+            <p id="account-handle" class="handle"></p>
+            <p class="muted" id="account-note">Read-only. Nothing changes unless you approve it.</p>
+          </div>
         </div>
+        <div class="balance compact">
+          <div class="equity" id="acct-equity">—</div>
+          <div class="balance-sub">
+            <span class="today" id="acct-today">—</span>
+            <span class="mult" id="acct-mult">1.00x</span>
+          </div>
+        </div>
+        <div class="tf" id="acct-tf" role="tablist" aria-label="Account equity timeframe">
+          <button type="button" data-tf="24h" class="on">24h</button>
+          <button type="button" data-tf="7d">7d</button>
+          <button type="button" data-tf="30d">30d</button>
+          <button type="button" data-tf="all">All</button>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-acct" width="358" height="120"></canvas>
+        </div>
+        <div class="cash-row">
+          <span>Cash balance</span>
+          <span id="paper-cash">—</span>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="label">Trades</span><span class="value" id="trade-count">—</span></div>
+          <div class="stat"><span class="label">Avg hold</span><span class="value" id="avg-hold">—</span></div>
+          <div class="stat"><span class="label">Closed</span><span class="value" id="closed-count">—</span></div>
+        </div>
+        <div class="metrics acct-metrics">
+          <div class="metric">
+            <span class="label">Realized</span>
+            <span class="value" id="realized-pnl">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">Unrealized</span>
+            <span class="value" id="unrealized-pnl">—</span>
+          </div>
+        </div>
+        <div class="section-head"><h2>Positions</h2><span class="muted" id="acct-open-n"></span></div>
+        <div id="positions"><p class="empty">No open positions.</p></div>
+        <div class="section-head"><h2>Closed</h2></div>
+        <div id="closed-positions"><p class="empty">No closed positions.</p></div>
         <div id="settings-list"></div>
       </section>
     </main>
+
     <nav class="nav">
-      <button data-page="home" class="on">Home</button>
-      <button data-page="bots">Bots</button>
-      <button data-page="trades">Trades</button>
-      <button data-page="activity">Activity</button>
-      <button data-page="account">Account</button>
+      <button data-page="home" class="on">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2"/><path d="M6.5 10.5V20h11V10.5"/></svg>
+        Home
+      </button>
+      <button data-page="bots">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="2.4"/><circle cx="16" cy="9.2" r="2.1"/><path d="M4.5 18c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8"/><path d="M13 18c.3-1.8 1.6-3 3.3-3 1.8 0 3 1.2 3.2 3"/></svg>
+        Bots
+      </button>
+      <button data-page="activity">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3l2.2-6 3.6 12 2.4-6H21"/></svg>
+        Activity
+      </button>
+      <button data-page="account">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5.5 19c.8-3 3-4.5 6.5-4.5s5.7 1.5 6.5 4.5"/></svg>
+        Account
+      </button>
     </nav>
+    <canvas id="confetti" class="confetti" hidden></canvas>
   </div>
-  <script type="module" src="./app.js?v=8"></script>
+  <script type="module" src="./app.js?v=9"></script>
 </body>
 </html>
