@@ -26,6 +26,20 @@ export async function decryptEnvelope(envelope, keyB64) {
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
+export function bytesToB64url(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export async function encryptEnvelope(obj, keyB64) {
+  const key = await crypto.subtle.importKey("raw", b64urlToBytes(keyB64), "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const pt = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, pt));
+  return { v: 1, alg: "A256GCM", iv: bytesToB64url(iv), ct: bytesToB64url(ct), ts: Math.floor(Date.now() / 1000) };
+}
+
 export function normalizeKey(raw) {
   let s = String(raw || "").trim();
   const fromUrl = s.match(/#k=([^&\s]+)/i);
@@ -317,6 +331,12 @@ function paintMiniScreen(state) {
     cap.innerHTML = escapeHtml(text).replace("verified ✓", '<span class="ok">verified ✓</span>');
   }
 
+  if (liveFrameFresh() && img && img.getAttribute("src")) {
+    if (frame) frame.classList.add("has-shot");
+    if (img) img.hidden = false;
+    if (tag) tag.hidden = false;
+    return;
+  }
   const allowedShot = !!(screen.included && screen.data_url && (screen.page_kind == null || screen.page_kind === "coin"));
   if (tag) tag.hidden = !allowedShot;
   if (allowedShot) {
@@ -777,6 +797,7 @@ function updateFresh(state) {
 function updateReplayLag(ev, state) {
   const el = document.getElementById("replay-lag");
   if (!el) return;
+  if (liveMode === "live" && liveFrameFresh()) return;
   const src = ev && ev.ts != null ? Number(ev.ts) : Number((state && (state.tape && state.tape.generated_at)) || (state && state.generated_at) || 0);
   if (!src) {
     el.textContent = "";
@@ -972,6 +993,9 @@ function bindLifecycle() {
     if (document.visibilityState !== "visible" || !window.__deskBooted) return;
     updateFresh(window.__deskState);
     refresh(loadKey()).catch(() => {});
+    const cfg = streamConfig(window.__deskState);
+    const key = loadKey();
+    if (cfg && key) postHeartbeat(cfg, key);
   });
   window.addEventListener("pageshow", (event) => {
     if (!event.persisted || !window.__deskBooted) return;
@@ -981,6 +1005,142 @@ function bindLifecycle() {
     if (!window.__deskState) return;
     updateFresh(window.__deskState);
     updateReplayLag(replayEvent, window.__deskState);
+  }, 1000);
+}
+
+
+let liveEs = null;
+let liveHbTimer = null;
+let liveLastFrameAt = 0;
+let liveMode = "replay";
+let liveTopicsKey = "";
+let liveStaleTimer = null;
+
+export function liveFrameFresh() {
+  return !!(liveLastFrameAt && (Date.now() / 1000 - liveLastFrameAt) < 15);
+}
+
+function streamConfig(state) {
+  const ls = state && state.live_stream;
+  if (!ls || !ls.enabled || !ls.frame_topic || !ls.heartbeat_topic) return null;
+  const host = String(ls.host || "https://ntfy.sh").replace(/\/$/, "");
+  if (!/^https:\/\/ntfy\.sh$/i.test(host)) return null;
+  return { host, frame: ls.frame_topic, heartbeat: ls.heartbeat_topic, heartbeatS: Number(ls.heartbeat_s) || 20 };
+}
+
+function setLiveMode(mode) {
+  liveMode = mode;
+  const el = document.getElementById("ls-mode");
+  if (el) {
+    el.textContent = mode === "live" ? "LIVE" : "REPLAY";
+    el.classList.toggle("is-live", mode === "live");
+  }
+}
+
+function stopLiveStream() {
+  if (liveEs) {
+    try { liveEs.close(); } catch { /* ignore */ }
+    liveEs = null;
+  }
+  if (liveHbTimer) {
+    clearInterval(liveHbTimer);
+    liveHbTimer = null;
+  }
+  if (liveStaleTimer) {
+    clearInterval(liveStaleTimer);
+    liveStaleTimer = null;
+  }
+  liveTopicsKey = "";
+  liveLastFrameAt = 0;
+  setLiveMode("replay");
+}
+
+async function postHeartbeat(cfg, key) {
+  if (document.visibilityState !== "visible") return;
+  try {
+    const env = await encryptEnvelope({ kind: "viewer", ts: Date.now() / 1000 }, key);
+    await fetch(`${cfg.host}/${encodeURIComponent(cfg.heartbeat)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Priority": "min", "Cache": "no" },
+      body: JSON.stringify(env),
+      cache: "no-store",
+    });
+  } catch { /* offline / rate limit */ }
+}
+
+async function applyLivePayload(obj, key) {
+  if (!obj || obj.kind !== "frame" || !obj.jpeg_b64) return;
+  const img = document.getElementById("screen-img");
+  const frame = document.getElementById("screen-frame");
+  const ptr = document.getElementById("ls-pointer");
+  if (!img || !frame) return;
+  liveLastFrameAt = Date.now() / 1000;
+  setLiveMode("live");
+  frame.classList.add("has-shot");
+  img.hidden = false;
+  img.src = `data:image/jpeg;base64,${obj.jpeg_b64}`;
+  img.alt = "Live picture of the desk on a FOMO coin page.";
+  if (ptr) ptr.hidden = true;
+  const lag = document.getElementById("replay-lag");
+  if (lag) {
+    const behind = obj.captured_at
+      ? Math.max(0, Math.round(Date.now() / 1000 - Number(obj.captured_at)))
+      : 0;
+    lag.textContent = `live · ${behind}s behind`;
+  }
+}
+
+async function onNtfyEvent(ev, key) {
+  if (!ev || !ev.data) return;
+  let msg;
+  try { msg = JSON.parse(ev.data); } catch { return; }
+  if (msg.event && msg.event !== "message") return;
+  let envelope = null;
+  try {
+    if (msg.attachment && msg.attachment.url) {
+      const resp = await fetch(msg.attachment.url, { cache: "no-store" });
+      envelope = JSON.parse(await resp.text());
+    } else if (msg.message) {
+      envelope = JSON.parse(msg.message);
+    }
+  } catch { return; }
+  if (!envelope || !envelope.ct) return;
+  try {
+    const obj = await decryptEnvelope(envelope, key);
+    await applyLivePayload(obj, key);
+  } catch { /* wrong key or truncated */ }
+}
+
+function startLiveStream(state) {
+  const key = loadKey();
+  const cfg = streamConfig(state);
+  if (!cfg || !key) {
+    if (liveEs) stopLiveStream();
+    else setLiveMode("replay");
+    return;
+  }
+  const sig = `${cfg.host}/${cfg.frame}/${cfg.heartbeat}`;
+  if (liveEs && liveTopicsKey === sig) return;
+  stopLiveStream();
+  liveTopicsKey = sig;
+  setLiveMode("replay");
+  const es = new EventSource(`${cfg.host}/${encodeURIComponent(cfg.frame)}/sse`);
+  liveEs = es;
+  es.onmessage = (ev) => { onNtfyEvent(ev, key); };
+  es.addEventListener("message", (ev) => { onNtfyEvent(ev, key); });
+  postHeartbeat(cfg, key);
+  liveHbTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    postHeartbeat(cfg, key);
+  }, cfg.heartbeatS * 1000);
+  liveStaleTimer = setInterval(() => {
+    if (liveMode === "live" && !liveFrameFresh()) {
+      setLiveMode("replay");
+      if (window.__deskState) {
+        paintMiniScreen(window.__deskState);
+        updateReplayLag(replayEvent, window.__deskState);
+      }
+    }
   }, 1000);
 }
 
@@ -994,6 +1154,7 @@ function render(state, meta) {
   renderAccount(state);
   maybeConfetti(state);
   startTape(state);
+  startLiveStream(state);
   feedReady = true;
 }
 

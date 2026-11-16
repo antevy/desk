@@ -129,7 +129,21 @@ main { padding: 4px 16px 24px; }
   margin-bottom: 8px;
 }
 .ls-head span:first-child { font-weight: 700; font-size: 17px; }
-.ls-right { color: var(--good); font-weight: 600; font-size: 13px; }
+.ls-right { color: var(--good); font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.ls-mode {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #8e8e93;
+  border: 1px solid #2a3144;
+  background: rgba(12, 16, 28, 0.86);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.ls-mode.is-live {
+  color: #00e87a;
+  border-color: #00e87a;
+}
 .ls-frame {
   position: relative;
   background: #07070a;
