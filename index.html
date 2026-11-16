@@ -12,7 +12,7 @@
   <title>Desk</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/mascot-180.png">
-  <link rel="stylesheet" href="./app.css?v=3">
+  <link rel="stylesheet" href="./app.css?v=4">
 </head>
 <body>
   <div id="lock" class="lock">
@@ -37,23 +37,29 @@
     <p class="fresh" id="fresh">Updating…</p>
     <main>
       <section id="page-home" class="page on">
-        <div class="metrics">
-          <div class="metric">
-            <span class="label">Paper cash</span>
-            <span class="value" id="paper-cash">—</span>
+        <div class="money">
+          <div class="equity-block">
+            <span class="label">Paper equity</span>
+            <span class="equity" id="equity">—</span>
+            <span class="today" id="today-pnl">—</span>
           </div>
-          <div class="metric">
-            <span class="label">Night P&amp;L</span>
-            <span class="value" id="night-pnl">—</span>
+          <div class="metrics">
+            <div class="metric">
+              <span class="label">Cash</span>
+              <span class="value" id="paper-cash">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">Realized</span>
+              <span class="value" id="realized-pnl">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">Unrealized</span>
+              <span class="value" id="unrealized-pnl">—</span>
+            </div>
           </div>
-          <div class="metric">
-            <span class="label">Total P&amp;L</span>
-            <span class="value" id="total-pnl">—</span>
+          <div class="card chart-card">
+            <canvas id="chart-pnl" width="358" height="88"></canvas>
           </div>
-        </div>
-        <div class="card">
-          <h2>P&amp;L</h2>
-          <canvas id="chart-pnl" width="358" height="140"></canvas>
         </div>
         <div class="card" id="screen-card" hidden>
           <h2>Screen</h2>
@@ -61,10 +67,17 @@
           <p class="muted" id="screen-caption"></p>
         </div>
         <div class="card">
-          <h2>Open positions</h2>
+          <h2>Holding</h2>
           <div id="positions"><p class="empty">No open positions.</p></div>
         </div>
-        <p class="muted hint">On iPhone: open this private link, then Share → Add to Home Screen.</p>
+        <div class="card">
+          <h2>Recent trades</h2>
+          <div id="home-trades"><p class="empty">No trades yet.</p></div>
+        </div>
+        <div class="card bots-home-card">
+          <h2>Bots</h2>
+          <div id="home-bots" class="bots-grid"></div>
+        </div>
       </section>
 
       <section id="page-bots" class="page">
@@ -107,6 +120,6 @@
       <button data-page="account">Account</button>
     </nav>
   </div>
-  <script type="module" src="./app.js?v=3"></script>
+  <script type="module" src="./app.js?v=4"></script>
 </body>
 </html>

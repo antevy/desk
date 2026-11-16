@@ -143,3 +143,35 @@ table.settings tbody th { font-weight: 500; text-align: left; }
   font-weight: 700; cursor: pointer;
 }
 #unlock-error { margin: 8px 0 0; font-size: 13px; }
+
+/* Home: money on top, holdings in the middle, bots at the bottom */
+.equity-block { text-align: center; padding: 8px 0 12px; }
+.equity-block .label { display: block; color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.equity { display: block; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; margin: 2px 0; }
+.today { display: block; font-size: 14px; font-weight: 600; }
+.chart-card { padding: 8px; }
+.chart-card canvas { height: 88px; }
+.bots-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.bot-tile {
+  background: #0e1118;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  min-height: 92px;
+}
+.bot-tile-head { display: flex; align-items: center; gap: 8px; }
+.bot-tile-head .name { font-weight: 700; font-size: 13px; flex: 1; }
+.bot-icon { width: 22px; height: 22px; flex-shrink: 0; color: var(--muted); }
+.bot-icon svg { width: 100%; height: 100%; display: block; }
+.bot-icon.running { color: var(--good); }
+.bot-icon.idle, .bot-icon.off, .bot-icon.stale { color: var(--muted); }
+.bot-tile .action { margin: 6px 0 0; font-size: 12px; color: var(--ink); line-height: 1.3; }
+.bot-tile .beat { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.hold-row { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.hold-row:last-child { border-bottom: 0; }
+.hold-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.hold-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }

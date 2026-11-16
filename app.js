@@ -169,23 +169,57 @@ async function fetchEnvelope() {
   return { envelope: await r.json(), source: "raw_bust", ms: Date.now() - started };
 }
 
+const BOT_ICONS = {
+  scanner: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M12 5a7 7 0 0 1 7 7"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M7.5 8.2A7 7 0 0 0 12 19"/><path d="M4.2 6.5A10 10 0 0 0 12 22"/></svg>',
+  analyst: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>',
+  social: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16.5V7.8A2.8 2.8 0 0 1 7.8 5h8.4A2.8 2.8 0 0 1 19 7.8v5.4A2.8 2.8 0 0 1 16.2 16H9z"/><path d="M8 19l3-3"/></svg>',
+  brain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5c-1.2-1-3.3-.9-4.4.5A3.2 3.2 0 0 0 5 8.4c0 1.1.5 2 .7 2.3C5.2 11.2 4.5 12.3 4.5 13.6c0 1.6 1.2 3 2.8 3.1 0 1.6 1.3 2.8 3 2.8.6 0 1.2-.2 1.7-.5"/><path d="M12 4.5c1.2-1 3.3-.9 4.4.5A3.2 3.2 0 0 1 19 8.4c0 1.1-.5 2-.7 2.3.5.5 1.2 1.6 1.2 2.9 0 1.6-1.2 3-2.8 3.1 0 1.6-1.3 2.8-3 2.8-.6 0-1.2-.2-1.7-.5"/><path d="M12 5.5v16"/></svg>',
+  executor: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.2 2.2 4.8 13.3h5.2l-1.4 8.5 9.2-12.2h-5.3l1.7-7.4z"/></svg>',
+  risk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2 5 6.2v5.2c0 4.2 2.8 7.3 7 8.6 4.2-1.3 7-4.4 7-8.6V6.2L12 3.2z"/><path d="M9.2 12.1 11 14l3.8-4.2"/></svg>',
+};
+
+function botIcon(id, status) {
+  const svg = BOT_ICONS[id] || BOT_ICONS.scanner;
+  const tone = status === "running" ? "running" : (status || "idle");
+  return `<span class="bot-icon ${escapeHtml(tone)}">${svg}</span>`;
+}
+
+function pctText(n) {
+  if (n == null || Number.isNaN(Number(n))) return "";
+  const v = Number(n);
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return `${sign}${Math.abs(v).toFixed(1)}%`;
+}
+
 function renderHome(state) {
   const badge = document.getElementById("mode-badge");
   if (badge) {
     badge.textContent = state.mode || "PAPER";
     badge.classList.toggle("live", (state.mode || "") === "LIVE");
   }
+  const equityEl = document.getElementById("equity");
+  if (equityEl) {
+    equityEl.textContent = state.equity_text || money(state.equity);
+    equityEl.className = `equity ${pnlClass(state.total_pnl)}`;
+  }
+  const todayEl = document.getElementById("today-pnl");
+  if (todayEl) {
+    const dollar = state.today_pnl_text || money(state.today_pnl);
+    const pct = state.today_pnl_pct_text || pctText(state.today_pnl_pct);
+    todayEl.textContent = pct ? `Today ${dollar} (${pct})` : `Today ${dollar}`;
+    todayEl.className = `today ${pnlClass(state.today_pnl)}`;
+  }
   const cash = document.getElementById("paper-cash");
   if (cash) cash.textContent = state.paper_cash_text || money(state.paper_cash);
-  const night = document.getElementById("night-pnl");
-  if (night) {
-    night.textContent = state.night_pnl_text || money(state.night_pnl);
-    night.className = `value ${pnlClass(state.night_pnl)}`;
+  const realized = document.getElementById("realized-pnl");
+  if (realized) {
+    realized.textContent = state.realized_pnl_text || money(state.realized_pnl);
+    realized.className = `value ${pnlClass(state.realized_pnl)}`;
   }
-  const total = document.getElementById("total-pnl");
-  if (total) {
-    total.textContent = state.total_pnl_text || money(state.total_pnl);
-    total.className = `value ${pnlClass(state.total_pnl)}`;
+  const unreal = document.getElementById("unrealized-pnl");
+  if (unreal) {
+    unreal.textContent = state.unrealized_pnl_text || money(state.unrealized_pnl);
+    unreal.className = `value ${pnlClass(state.unrealized_pnl)}`;
   }
   const values = (state.pnl_points || []).map((p) => Number(p.value));
   drawLine(document.getElementById("chart-pnl"), values, (state.total_pnl || 0) >= 0 ? "#50c878" : "#ef5b5b");
@@ -205,23 +239,55 @@ function renderHome(state) {
 
   const box = document.getElementById("positions");
   const positions = state.open_positions || [];
-  if (!box) return;
-  if (!positions.length) {
-    box.innerHTML = '<p class="empty">No open positions.</p>';
-    return;
+  if (box) {
+    if (!positions.length) {
+      box.innerHTML = '<p class="empty">Nothing held right now.</p>';
+    } else {
+      box.innerHTML = positions.map((p) => `
+        <div class="hold-row">
+          <div class="hold-top">
+            <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.symbol || p.mint)}</a>
+            <span class="${pnlClass(p.pnl_usd)}">${p.pnl_usd == null ? "—" : money(p.pnl_usd)}</span>
+          </div>
+          <div class="hold-meta">Entry ${p.entry == null ? "—" : priceText(p.entry)} · Now ${p.now == null ? "—" : priceText(p.now)} · Size ${p.size_usd == null ? "—" : money(p.size_usd)} · ${escapeHtml(p.age_text || "")}</div>
+        </div>
+      `).join("");
+    }
   }
-  box.innerHTML = positions.map((p) => `
-    <div class="row">
-      <div>
-        <a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.symbol || p.mint)}</a>
-        <div class="meta">${escapeHtml(p.opened_at_text || "")}</div>
+
+  const tradesBox = document.getElementById("home-trades");
+  const trades = state.recent_trades || [];
+  if (tradesBox) {
+    if (!trades.length) {
+      tradesBox.innerHTML = '<p class="empty">No trades yet.</p>';
+    } else {
+      tradesBox.innerHTML = trades.map((t) => `
+        <div class="hold-row">
+          <div class="hold-top">
+            <div><span class="side ${(t.side || "").toLowerCase()}">${escapeHtml(t.side || "")}</span> <a href="${escapeHtml(t.url)}" target="_blank" rel="noopener">${escapeHtml(t.symbol || t.mint)}</a></div>
+            <span class="${pnlClass(t.pnl_usd)}">${escapeHtml(t.result || (t.pnl_usd == null ? "—" : money(t.pnl_usd)))}</span>
+          </div>
+          <div class="hold-meta">${escapeHtml(t.ts_text || "")}${t.reason ? " · " + escapeHtml(t.reason) : ""}</div>
+        </div>
+      `).join("");
+    }
+  }
+
+  const homeBots = document.getElementById("home-bots");
+  if (homeBots) {
+    const bots = state.bots || [];
+    homeBots.innerHTML = bots.map((b) => `
+      <div class="bot-tile">
+        <div class="bot-tile-head">
+          ${botIcon(b.id, b.status)}
+          <span class="name">${escapeHtml(b.label || b.id)}</span>
+          <span class="pill ${escapeHtml(b.status || "idle")}">${escapeHtml(b.status || "idle")}</span>
+        </div>
+        <p class="action">${escapeHtml(b.current_action || "—")}</p>
+        <p class="beat">${escapeHtml(b.heartbeat_age_text || "no heartbeat")}</p>
       </div>
-      <div class="right">
-        <div>Entry ${p.entry == null ? "—" : priceText(p.entry)} · Now ${p.now == null ? "—" : priceText(p.now)}</div>
-        <div class="${pnlClass(p.pnl_usd)}">${p.pnl_usd == null ? "—" : (p.pnl_usd_text || money(p.pnl_usd))}</div>
-      </div>
-    </div>
-  `).join("");
+    `).join("");
+  }
 }
 
 function renderBots(state) {
