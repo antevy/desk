@@ -147,25 +147,26 @@ async function fetchEnvelope() {
   const started = Date.now();
   const errors = [];
 
+  // Measured: api.github.com contents is fresh in about a second.
+  // raw.githubusercontent.com is cached for up to 5 minutes, even with a query string.
   try {
-    const r = await fetch(rawUrl, { cache: "no-store" });
+    const r = await fetch(apiUrl, {
+      cache: "no-store",
+      headers: { Accept: "application/vnd.github+json" },
+    });
     if (r.ok) {
-      const envelope = await r.json();
-      return { envelope, source: "raw_bust", ms: Date.now() - started };
+      const payload = await r.json();
+      const text = atob((payload.content || "").replace(/\s/g, ""));
+      return { envelope: JSON.parse(text), source: "api_contents", ms: Date.now() - started };
     }
-    errors.push(`raw ${r.status}`);
+    errors.push(`api ${r.status}`);
   } catch (err) {
-    errors.push(`raw ${err}`);
+    errors.push(`api ${err}`);
   }
 
-  const r = await fetch(apiUrl, {
-    cache: "no-store",
-    headers: { Accept: "application/vnd.github+json" },
-  });
-  if (!r.ok) throw new Error(`Could not load desk data (${errors.join(", ")}, api ${r.status})`);
-  const payload = await r.json();
-  const text = atob((payload.content || "").replace(/\s/g, ""));
-  return { envelope: JSON.parse(text), source: "api_contents", ms: Date.now() - started };
+  const r = await fetch(rawUrl, { cache: "no-store" });
+  if (!r.ok) throw new Error(`Could not load desk data (${errors.join(", ")}, raw ${r.status})`);
+  return { envelope: await r.json(), source: "raw_bust", ms: Date.now() - started };
 }
 
 function renderHome(state) {
