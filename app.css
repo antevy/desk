@@ -179,3 +179,9 @@ table.settings tbody th { font-weight: 500; text-align: left; }
 #page-home .empty { padding: 12px 8px; }
 #page-home .bot-tile .action { font-size: 11px; margin-top: 4px; }
 #page-home .pill { font-size: 9px; padding: 1px 5px; }
+
+#page-home .bot-tile .pill { display: none; }
+#page-home .bot-tile-head { gap: 5px; }
+#page-home .bot-tile-head .name { font-size: 12px; }
+#page-home .bots-home-card, #page-home .bots-grid { overflow: visible; }
+#page-home .bot-tile { min-width: 0; }
