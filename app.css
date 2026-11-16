@@ -389,3 +389,36 @@ canvas.confetti {
   position: fixed; inset: 0; width: 100%; height: 100%;
   pointer-events: none; z-index: 20;
 }
+
+.ls-lag {
+  margin: 4px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.ls-lag.hot { color: #8e8e93; }
+.ls-pointer {
+  position: absolute;
+  width: 12px;
+  height: 16px;
+  color: #00e87a;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
+  pointer-events: none;
+  z-index: 3;
+  transition: left 0.55s ease, top 0.55s ease;
+}
+.ls-pointer svg { display: block; }
+.ls-foot .caret {
+  display: inline-block;
+  width: 1px;
+  height: 0.9em;
+  margin-left: 1px;
+  background: var(--good);
+  vertical-align: text-bottom;
+  animation: caret-blink 1s step-end infinite;
+}
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}

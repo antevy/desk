@@ -12,7 +12,7 @@
   <title>Desk</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icons/mascot-180.png">
-  <link rel="stylesheet" href="./app.css?v=9">
+  <link rel="stylesheet" href="./app.css?v=10">
 </head>
 <body>
   <div id="lock" class="lock">
@@ -78,8 +78,10 @@
             <div class="ls-tag" id="acting-tag">Desk · watching</div>
             <img id="screen-img" alt="" hidden>
             <canvas id="screen-mini" width="358" height="168"></canvas>
+            <div class="ls-pointer" id="ls-pointer" hidden></div>
           </div>
           <p class="ls-foot" id="screen-caption">Watching · no trades yet · PAPER</p>
+          <p class="ls-lag" id="replay-lag"></p>
         </div>
 
         <div class="section-head">
@@ -185,6 +187,6 @@
     </nav>
     <canvas id="confetti" class="confetti" hidden></canvas>
   </div>
-  <script type="module" src="./app.js?v=9"></script>
+  <script type="module" src="./app.js?v=10"></script>
 </body>
 </html>

@@ -156,7 +156,7 @@ async function fetchEnvelope() {
   try {
     const r = await fetch(apiUrl, {
       cache: "no-store",
-      headers: { Accept: "application/vnd.github+json" },
+      headers: { Accept: "application/vnd.github+json", "Cache-Control": "no-store" },
     });
     if (r.ok) {
       const payload = await r.json();
@@ -427,7 +427,7 @@ function botRow(b, { detailed = false } = {}) {
       }).join("")
     : "";
   return `
-    <div class="bot-row">
+    <div class="bot-row" data-bot="${escapeHtml(b.id || "")}">
       ${botIco(b.id)}
       <div class="bot-mid">
         <span class="name">${escapeHtml(b.label || b.id)}</span>
@@ -755,10 +755,15 @@ function fireConfetti() {
   requestAnimationFrame(step);
 }
 
-function render(state, meta) {
-  showApp();
-  window.__deskState = state;
-  const lag = state.generated_at ? Math.max(0, Math.round((Date.now() / 1000) - Number(state.generated_at))) : null;
+
+function snapshotAgeS(state) {
+  if (!state || !state.generated_at) return null;
+  return Math.max(0, Math.round((Date.now() / 1000) - Number(state.generated_at)));
+}
+
+function updateFresh(state) {
+  if (!state) return;
+  const lag = snapshotAgeS(state);
   const live = lag != null && lag <= 180;
   const badge = document.getElementById("live-badge");
   if (badge) badge.classList.toggle("stale", !live);
@@ -767,16 +772,231 @@ function render(state, meta) {
     const lagText = lag == null ? "" : lag < 60 ? `${lag}s old` : `${Math.round(lag / 60)}m old`;
     fresh.textContent = lagText || state.published_at_text || "";
   }
+}
+
+function updateReplayLag(ev, state) {
+  const el = document.getElementById("replay-lag");
+  if (!el) return;
+  const src = ev && ev.ts != null ? Number(ev.ts) : Number((state && (state.tape && state.tape.generated_at)) || (state && state.generated_at) || 0);
+  if (!src) {
+    el.textContent = "";
+    return;
+  }
+  const behind = Math.max(0, Math.round(Date.now() / 1000 - src));
+  el.textContent = ev ? `replaying · ${behind}s behind` : `waiting · ${behind}s behind`;
+}
+
+let tapeTimer = null;
+let typingTimer = null;
+const playedTapeIds = new Set();
+let replayEvent = null;
+
+function stopTape() {
+  if (tapeTimer) {
+    clearInterval(tapeTimer);
+    tapeTimer = null;
+  }
+}
+
+function setCaption(text, { type = false } = {}) {
+  const cap = document.getElementById("screen-caption");
+  if (!cap) return;
+  if (typingTimer) {
+    clearInterval(typingTimer);
+    typingTimer = null;
+  }
+  const paint = (s) => escapeHtml(s).replace("verified ✓", '<span class="ok">verified ✓</span>');
+  if (!type) {
+    cap.innerHTML = paint(text);
+    return;
+  }
+  let i = 0;
+  cap.innerHTML = '<span class="caret"></span>';
+  typingTimer = setInterval(() => {
+    i += 1;
+    cap.innerHTML = paint(text.slice(0, i)) + (i >= text.length ? "" : '<span class="caret"></span>');
+    if (i >= text.length) {
+      clearInterval(typingTimer);
+      typingTimer = null;
+    }
+  }, 16);
+}
+
+function movePointer(ev, spark) {
+  const el = document.getElementById("ls-pointer");
+  const frame = document.getElementById("screen-frame");
+  if (!el || !frame) return;
+  el.hidden = false;
+  if (!el.innerHTML) el.innerHTML = CURSOR_SVG;
+  const w = frame.clientWidth || 358;
+  const h = frame.clientHeight || 168;
+  const vals = Array.isArray(spark && spark.sparkline)
+    ? spark.sparkline.map(Number).filter(Number.isFinite)
+    : [];
+  // Sit on the last real price when we have one; otherwise mid-chart.
+  let yFrac = 0.5;
+  if (vals.length >= 2) {
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const last = vals[vals.length - 1];
+    yFrac = max === min ? 0.5 : 0.78 - ((last - min) / (max - min)) * 0.55;
+  }
+  const x = vals.length >= 2 ? Math.round(w * 0.60) : Math.round(w * 0.36);
+  el.style.left = `${x}px`;
+  el.style.top = `${Math.round(h * yFrac)}px`;
+}
+
+function tapeFeedBase(state) {
+  const tapeIds = new Set(((state.tape || {}).events || []).map((e) => e.id).filter(Boolean));
+  return (state.feed || []).filter((it) => !it.id || !tapeIds.has(it.id) || playedTapeIds.has(it.id));
+}
+
+function insertFeedEvent(ev) {
+  if (!ev || !ev.id) return;
+  const row = feedRow(ev, { animate: true });
+  for (const id of ["home-feed", "feed"]) {
+    const box = document.getElementById(id);
+    if (!box) continue;
+    const empty = box.querySelector(".empty");
+    if (empty) empty.remove();
+    if (box.querySelector(`[data-id="${CSS.escape(ev.id)}"]`)) continue;
+    box.insertAdjacentHTML("afterbegin", row);
+    if (id === "home-feed") {
+      const rows = box.querySelectorAll(".feed-row");
+      if (rows.length > 6) {
+        for (let i = 6; i < rows.length; i += 1) rows[i].remove();
+      }
+    }
+  }
+}
+
+function updateBotAction(ev) {
+  if (!ev || !ev.bot) return;
+  const text = ev.action || ev.title || "";
+  document.querySelectorAll(`.bot-row[data-bot="${CSS.escape(ev.bot)}"] .action`).forEach((p) => {
+    p.textContent = text;
+  });
+}
+
+function applyTapeEvent(state, ev) {
+  const sparks = (state.tape && state.tape.sparks) || {};
+  const spark = ev.mint && sparks[ev.mint] ? sparks[ev.mint] : {};
+  const label = ev.bot ? (ev.bot.charAt(0).toUpperCase() + ev.bot.slice(1)) : "Desk";
+  const action = ev.action || ev.title || "watching";
+  const view = {
+    ...state,
+    focus: {
+      mint: ev.mint || "",
+      symbol: ev.symbol || spark.symbol || "",
+      sparkline: spark.sparkline || [],
+      last_price: spark.last_price != null ? spark.last_price : null,
+      url: ev.url || "",
+      action,
+    },
+    acting: {
+      id: ev.bot || "scanner",
+      label,
+      action,
+      tag: `${label} · ${action}`,
+    },
+    last_action: {
+      text: [ev.title, ev.reason, ev.ts_clock || ev.ts_text, state.mode || "PAPER"].filter(Boolean).join(" · "),
+      verified: ev.type === "buy" || ev.type === "sell" || ev.type === "reentry",
+    },
+  };
+  replayEvent = ev;
+  // Replay uses the moving mini-screen, not a frozen still.
+  const screen = view.screen || {};
+  view.screen = { ...screen, included: false, data_url: null };
+  const tag = document.getElementById("acting-tag");
+  if (tag) {
+    tag.hidden = false;
+    tag.textContent = view.acting.tag;
+  }
+  paintMiniScreen(view);
+  setCaption(view.last_action.text, { type: true });
+  movePointer(ev, spark);
+  insertFeedEvent(ev);
+  updateBotAction(ev);
+  updateReplayLag(ev, state);
+  playedTapeIds.add(ev.id);
+}
+
+function startTape(state) {
+  stopTape();
+  const events = (((state.tape || {}).events) || []).slice().sort((a, b) => {
+    const dt = Number(a.ts || 0) - Number(b.ts || 0);
+    if (dt !== 0) return dt;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+  const pending = events.filter((e) => e && e.id && !playedTapeIds.has(e.id));
+  const base = tapeFeedBase(state);
+  renderFeed("home-feed", base, { limit: 6 });
+  renderFeed("feed", base);
+  if (!pending.length) {
+    let replayEvent = null;
+    const ptr = document.getElementById("ls-pointer");
+    if (ptr && !(state.tape && (state.tape.events || []).length)) ptr.hidden = true;
+    updateReplayLag(null, state);
+    return;
+  }
+  const budget = Math.max(28_000, POLL_MS - 10_000);
+  const gap = Math.min(4000, Math.max(2000, Math.floor(budget / pending.length)));
+  let i = 0;
+  const step = () => {
+    if (i >= pending.length) {
+      stopTape();
+      replayEvent = pending[pending.length - 1] || null;
+      updateReplayLag(null, state);
+      const lag = document.getElementById("replay-lag");
+      if (lag) {
+        const last = pending[pending.length - 1];
+        const behind = last && last.ts != null
+          ? Math.max(0, Math.round(Date.now() / 1000 - Number(last.ts)))
+          : snapshotAgeS(state);
+        lag.textContent = `waiting · ${behind ?? "?"}s behind`;
+      }
+      return;
+    }
+    applyTapeEvent(state, pending[i]);
+    i += 1;
+  };
+  step();
+  if (pending.length > 1) tapeTimer = setInterval(step, gap);
+}
+
+function bindLifecycle() {
+  if (bindLifecycle.bound) return;
+  bindLifecycle.bound = true;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !window.__deskBooted) return;
+    updateFresh(window.__deskState);
+    refresh(loadKey()).catch(() => {});
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted || !window.__deskBooted) return;
+    refresh(loadKey()).catch(() => {});
+  });
+  setInterval(() => {
+    if (!window.__deskState) return;
+    updateFresh(window.__deskState);
+    updateReplayLag(replayEvent, window.__deskState);
+  }, 1000);
+}
+
+function render(state, meta) {
+  showApp();
+  window.__deskState = state;
+  updateFresh(state);
   renderHome(state);
   renderBots(state);
-  renderActivity(state);
+  renderTrades(state);
   renderAccount(state);
   maybeConfetti(state);
-  for (const it of state.feed || []) {
-    if (it.id) seenFeedIds.add(it.id);
-  }
+  startTape(state);
   feedReady = true;
 }
+
 
 export async function refresh(key) {
   const k = key || loadKey();
@@ -802,8 +1022,10 @@ async function boot() {
     return;
   }
   keepHash(key);
+  bindLifecycle();
   try {
     await refresh(key);
+    window.__deskBooted = true;
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
     if (/decrypt|OperationError|jwk|AES/i.test(msg)) {
@@ -814,6 +1036,7 @@ async function boot() {
     return;
   }
   setInterval(() => {
+    if (document.visibilityState === "hidden") return;
     refresh(loadKey()).catch(() => {});
   }, POLL_MS);
 }
