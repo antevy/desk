@@ -1,5 +1,5 @@
 /* Cache the app shell only. Never cache GitHub state or API responses. */
-const CACHE = "desk-shell-v4";
+const CACHE = "desk-shell-v5";
 const SHELL = [
   "./",
   "./index.html",
@@ -7,7 +7,7 @@ const SHELL = [
   "./app.js",
   "./chart.js",
   "./manifest.json",
-  "./apple-touch-icon.png",
+  "./icons/mascot-180.png",
 ];
 
 self.addEventListener("install", (event) => {
