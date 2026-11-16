@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=390, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Desk">
+  <meta name="theme-color" content="#0a0c12">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Desk</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div id="lock" class="lock">
+    <div class="lock-card">
+      <div class="lock-icon" aria-hidden="true">🔒</div>
+      <h1>Desk is locked</h1>
+      <p id="lock-msg">Open your private link, or paste your unlock code below. Without the key, nothing is shown.</p>
+      <form id="unlock-form" autocomplete="off">
+        <label for="unlock-key">Paste your key</label>
+        <input id="unlock-key" type="text" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Unlock code">
+        <button type="submit">Unlock</button>
+        <p id="unlock-error" class="error" hidden></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" hidden>
+    <header>
+      <span class="brand">Desk</span>
+      <span class="badge" id="mode-badge">PAPER</span>
+    </header>
+    <p class="fresh" id="fresh">Updating…</p>
+    <main>
+      <section id="page-home" class="page on">
+        <div class="metrics">
+          <div class="metric">
+            <span class="label">Paper cash</span>
+            <span class="value" id="paper-cash">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">Night P&amp;L</span>
+            <span class="value" id="night-pnl">—</span>
+          </div>
+          <div class="metric">
+            <span class="label">Total P&amp;L</span>
+            <span class="value" id="total-pnl">—</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>P&amp;L</h2>
+          <canvas id="chart-pnl" width="358" height="140"></canvas>
+        </div>
+        <div class="card" id="screen-card" hidden>
+          <h2>Screen</h2>
+          <img id="screen-img" alt="" />
+          <p class="muted" id="screen-caption"></p>
+        </div>
+        <div class="card">
+          <h2>Open positions</h2>
+          <div id="positions"><p class="empty">No open positions.</p></div>
+        </div>
+        <p class="muted hint">On iPhone: open this private link, then Share → Add to Home Screen.</p>
+      </section>
+
+      <section id="page-bots" class="page">
+        <div id="bots"></div>
+      </section>
+
+      <section id="page-trades" class="page">
+        <div id="trades"><p class="empty">No trades yet.</p></div>
+      </section>
+
+      <section id="page-activity" class="page">
+        <div class="card">
+          <h2>Scans</h2>
+          <div id="scans"><p class="empty">No scans yet.</p></div>
+        </div>
+        <div class="card">
+          <h2>Audits</h2>
+          <div id="audits"><p class="empty">No audits yet.</p></div>
+        </div>
+        <div class="card">
+          <h2>Scores</h2>
+          <div id="scores"><p class="empty">No scores yet.</p></div>
+        </div>
+      </section>
+
+      <section id="page-account" class="page">
+        <div class="card">
+          <h2>Account</h2>
+          <p id="account-handle" class="handle"></p>
+          <p class="muted" id="account-note">Read-only. Nothing changes unless you approve it.</p>
+        </div>
+        <div id="settings-list"></div>
+      </section>
+    </main>
+    <nav class="nav">
+      <button data-page="home" class="on">Home</button>
+      <button data-page="bots">Bots</button>
+      <button data-page="trades">Trades</button>
+      <button data-page="activity">Activity</button>
+      <button data-page="account">Account</button>
+    </nav>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
