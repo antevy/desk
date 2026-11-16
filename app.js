@@ -261,7 +261,7 @@ function renderHome(state) {
             <div><span class="side ${(t.side || "").toLowerCase()}">${escapeHtml(t.side || "")}</span> <a href="${escapeHtml(t.url)}" target="_blank" rel="noopener">${escapeHtml(t.symbol || t.mint)}</a></div>
             <span class="${pnlClass(t.pnl_usd)}">${escapeHtml(t.result || (t.pnl_usd == null ? "—" : money(t.pnl_usd)))}</span>
           </div>
-          <div class="hold-meta">${escapeHtml(t.ts_text || "")}${t.reason ? " · " + escapeHtml(t.reason) : ""}</div>
+          <div class="hold-meta">${escapeHtml(t.ts_text || "")}${t.source ? " · " + escapeHtml(t.source) : ""}${t.reason ? " · " + escapeHtml(t.reason) : ""}</div>
         </div>
       `).join("");
     }
@@ -331,7 +331,7 @@ function renderTrades(state) {
         <span>Fee ${o.fee == null ? escapeHtml(o.fee_text || "—") : money(o.fee)}</span>
         <span class="${pnlClass(o.pnl_usd)}">P&amp;L ${o.pnl_usd == null ? "—" : money(o.pnl_usd)}</span>
       </div>
-      <p class="meta">${escapeHtml(o.reason || o.status || "")}</p>
+      <p class="meta">${[o.source, o.reason || o.status || ""].filter(Boolean).map(escapeHtml).join(" · ")}</p>
     </div>
   `).join("");
 }
@@ -351,7 +351,7 @@ function renderActivity(state) {
     <div class="row">
       <div>
         <a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.symbol || s.mint)}</a>
-        <div class="meta">${escapeHtml(s.ts_text || "")}</div>
+        <div class="meta">${escapeHtml(s.ts_text || "")}${s.source ? " · " + escapeHtml(s.source) : ""}</div>
       </div>
       <div class="right">
         <div class="${(s.verdict || "") === "pass" ? "pos" : "neg"}">${escapeHtml(s.verdict || "")}</div>
