@@ -201,7 +201,7 @@ const BOT_COLORS = {
   analyst: "#22d3ee",
   social: "#38bdf8",
   brain: "#a855f7",
-  executor: "#facc15",
+  executor: "#00e87a",
   risk: "#f43f5e",
 };
 
@@ -214,8 +214,9 @@ function botIcon(id, status) {
 }
 
 function botIco(id) {
-  const svg = BOT_ICONS[id] || BOT_ICONS.scanner;
-  return `<span class="bot-ico ${escapeHtml(id)}">${svg}</span>`;
+  const safe = BOT_COLORS[id] ? id : "scanner";
+  const cls = escapeHtml(safe);
+  return `<span class="bot-ico ${cls}"><picture><source type="image/webp" srcset="./icons/bot-${cls}-96.webp 96w, ./icons/bot-${cls}-192.webp 192w" sizes="36px"><img src="./icons/bot-${cls}-192.png" srcset="./icons/bot-${cls}-96.png 96w, ./icons/bot-${cls}-192.png 192w" sizes="36px" width="36" height="36" alt=""></picture></span>`;
 }
 
 function pctText(n) {
@@ -265,6 +266,7 @@ let feedReady = false;
 function showPage(id) {
   document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-page") === id));
   document.querySelectorAll("main .page").forEach((p) => p.classList.toggle("on", p.id === `page-${id}`));
+  syncFlyCursors();
 }
 
 function bindNav() {
@@ -431,10 +433,165 @@ function drawMini(canvas, state) {
   ctx.fillText(state.mode || "PAPER", paneW + 10 * dpr, h - 12 * dpr);
 }
 
-function cursorFor(bot) {
-  if ((bot.status || "") !== "running") return "";
-  const color = BOT_COLORS[bot.id] || "#8e8e93";
-  return `<span class="bot-cursor" style="color:${color}">${CURSOR_SVG}</span>`;
+const FLY_BOTS = [
+  { id: "scanner", target: "#screen-frame" },
+  { id: "analyst", target: "#home-bots" },
+  { id: "social", target: "#home-feed" },
+  { id: "brain", target: "#chart-pnl" },
+  { id: "executor", target: "#equity" },
+  { id: "risk", target: "#today-pnl" },
+];
+
+const fly = {
+  raf: 0,
+  phases: null,
+  lastTradeSig: "",
+  reduce: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches,
+};
+
+function homeCursorsAllowed() {
+  if (fly.reduce) return false;
+  if (document.visibilityState !== "visible") return false;
+  const page = document.getElementById("page-home");
+  if (!page || !page.classList.contains("on")) return false;
+  const app = document.getElementById("app");
+  if (app && app.hidden) return false;
+  return true;
+}
+
+function ensureFlyLayer() {
+  const layer = document.getElementById("bot-cursors");
+  if (!layer) return null;
+  if (!layer.querySelector(".fly-cursor")) {
+    layer.innerHTML = FLY_BOTS.map((b) => {
+      const color = BOT_COLORS[b.id] || "#8e8e93";
+      return `<div class="fly-cursor" data-bot="${b.id}" style="color:${color}">${CURSOR_SVG}</div>`;
+    }).join("");
+  }
+  return layer;
+}
+
+function flyTargetPoint(sel, host) {
+  const el = document.querySelector(sel);
+  if (!el || !host) return null;
+  const a = el.getBoundingClientRect();
+  const b = host.getBoundingClientRect();
+  return {
+    x: a.left - b.left + a.width * (0.3 + Math.random() * 0.4),
+    y: a.top - b.top + a.height * (0.3 + Math.random() * 0.4),
+  };
+}
+
+function flyWander(t, i, w, h) {
+  const p = i * 1.17;
+  const nx = 0.5 + 0.42 * Math.sin(t * (0.23 + i * 0.031) + p) * Math.cos(t * (0.11 + i * 0.017) + p * 0.7);
+  const ny = 0.5 + 0.40 * Math.sin(t * (0.19 + i * 0.027) + p * 1.3) * Math.cos(t * (0.09 + i * 0.013));
+  const pad = 8;
+  return {
+    x: pad + nx * Math.max(0, w - 22 - pad),
+    y: pad + ny * Math.max(0, h - 24 - pad),
+  };
+}
+
+function spawnRipple(layer, x, y, color) {
+  const el = document.createElement("span");
+  el.className = "cursor-ripple";
+  el.style.color = color;
+  el.style.setProperty("--x", `${x}px`);
+  el.style.setProperty("--y", `${y}px`);
+  layer.appendChild(el);
+  el.addEventListener("animationend", () => el.remove());
+}
+
+function forceFlyClick(id) {
+  if (!fly.phases) return;
+  const i = FLY_BOTS.findIndex((b) => b.id === id);
+  if (i < 0) return;
+  fly.phases[i].nextClick = 0;
+}
+
+function startFlyCursors() {
+  if (fly.raf || fly.reduce) return;
+  const layer = ensureFlyLayer();
+  const host = document.getElementById("page-home");
+  if (!layer || !host) return;
+  const nodes = [...layer.querySelectorAll(".fly-cursor")];
+  if (!fly.phases) {
+    const now = performance.now();
+    fly.phases = FLY_BOTS.map((_, i) => ({
+      nextClick: now + 1800 + i * 1600 + Math.random() * 1200,
+      mode: "wander",
+      seekUntil: 0,
+      sx: 0, sy: 0, tx: 0, ty: 0,
+    }));
+  }
+  const tick = (now) => {
+    fly.raf = 0;
+    if (!homeCursorsAllowed()) return;
+    const w = host.offsetWidth;
+    const h = host.offsetHeight;
+    const t = now / 1000;
+    nodes.forEach((node, i) => {
+      const st = fly.phases[i];
+      let x;
+      let y;
+      if (st.mode === "seek" && now < st.seekUntil) {
+        const u = Math.min(1, 1 - (st.seekUntil - now) / 700);
+        const e = 1 - (1 - u) ** 3;
+        x = st.sx + (st.tx - st.sx) * e;
+        y = st.sy + (st.ty - st.sy) * e;
+        if (u >= 1) {
+          spawnRipple(layer, st.tx, st.ty, BOT_COLORS[FLY_BOTS[i].id] || "#8e8e93");
+          st.mode = "wander";
+          st.nextClick = now + 8000 + Math.random() * 6000;
+        }
+      } else {
+        const p = flyWander(t, i, w, h);
+        x = p.x;
+        y = p.y;
+        if (now >= st.nextClick) {
+          const tgt = flyTargetPoint(FLY_BOTS[i].target, host);
+          if (tgt) {
+            st.mode = "seek";
+            st.sx = x;
+            st.sy = y;
+            st.tx = tgt.x;
+            st.ty = tgt.y;
+            st.seekUntil = now + 700;
+          } else {
+            st.nextClick = now + 4000;
+          }
+        }
+      }
+      node.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    });
+    fly.raf = requestAnimationFrame(tick);
+  };
+  fly.raf = requestAnimationFrame(tick);
+}
+
+function stopFlyCursors() {
+  if (fly.raf) cancelAnimationFrame(fly.raf);
+  fly.raf = 0;
+}
+
+function syncFlyCursors() {
+  if (homeCursorsAllowed()) startFlyCursors();
+  else stopFlyCursors();
+}
+
+function maybeTradeClick(state) {
+  const orders = state && state.orders ? state.orders : [];
+  if (!orders.length) return;
+  const last = orders[0];
+  const sig = String(last.id || `${last.ts || ""}|${last.symbol || ""}|${last.side || ""}`);
+  if (!fly.lastTradeSig) {
+    fly.lastTradeSig = sig;
+    return;
+  }
+  if (sig === fly.lastTradeSig) return;
+  fly.lastTradeSig = sig;
+  forceFlyClick("executor");
 }
 
 function botRow(b, { detailed = false } = {}) {
@@ -455,7 +612,6 @@ function botRow(b, { detailed = false } = {}) {
       </div>
       <div class="bot-right ${metricClass}">${escapeHtml(metric)}</div>
       ${actions ? `<ul class="actions">${actions}</ul>` : ""}
-      ${cursorFor(b)}
     </div>
   `;
 }
@@ -990,6 +1146,7 @@ function bindLifecycle() {
   if (bindLifecycle.bound) return;
   bindLifecycle.bound = true;
   document.addEventListener("visibilitychange", () => {
+    syncFlyCursors();
     if (document.visibilityState !== "visible" || !window.__deskBooted) return;
     updateFresh(window.__deskState);
     refresh(loadKey()).catch(() => {});
@@ -1155,6 +1312,8 @@ function render(state, meta) {
   maybeConfetti(state);
   startTape(state);
   startLiveStream(state);
+  maybeTradeClick(state);
+  syncFlyCursors();
   feedReady = true;
 }
 
