@@ -228,14 +228,8 @@ function renderHome(state) {
   const img = document.getElementById("screen-img");
   const cap = document.getElementById("screen-caption");
   const screen = state.screen || {};
-  if (screen.included && screen.data_url && img && screenCard) {
-    screenCard.hidden = false;
-    img.src = screen.data_url;
-    img.alt = screen.alt || "Desk Chrome still picture.";
-    if (cap) cap.textContent = screen.caption || "";
-  } else if (screenCard) {
-    screenCard.hidden = true;
-  }
+  // Keep the still off Home so money, holdings and the bot row fit on a phone.
+  if (screenCard) screenCard.hidden = true;
 
   const box = document.getElementById("positions");
   const positions = state.open_positions || [];
