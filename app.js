@@ -118,6 +118,7 @@ function bindUnlockForm() {
     if (err) { err.hidden = true; err.textContent = ""; }
     try {
       await refresh(key);
+      if (input) input.value = "";
     } catch (exc) {
       const text = String(exc && exc.message ? exc.message : exc);
       if (err) {
@@ -135,6 +136,8 @@ function showApp() {
   const app = document.getElementById("app");
   if (lock) lock.hidden = true;
   if (app) app.hidden = false;
+  const input = document.getElementById("unlock-key");
+  if (input) input.value = "";
 }
 
 async function fetchEnvelope() {

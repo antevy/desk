@@ -9,6 +9,7 @@
   --paper: #d4a017;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body {
   margin: 0; padding: 0;
   background: var(--bg); color: var(--ink);
