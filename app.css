@@ -145,23 +145,22 @@ table.settings tbody th { font-weight: 500; text-align: left; }
 #unlock-error { margin: 8px 0 0; font-size: 13px; }
 
 /* Home: money on top, holdings in the middle, bots at the bottom */
-.equity-block { text-align: center; padding: 8px 0 12px; }
+.equity-block { text-align: center; padding: 2px 0 8px; }
 .equity-block .label { display: block; color: var(--muted); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-.equity { display: block; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; margin: 2px 0; }
+.equity { display: block; font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 2px; }
 .today { display: block; font-size: 14px; font-weight: 600; }
 .chart-card { padding: 8px; }
-.chart-card canvas { height: 88px; }
+.chart-card canvas { height: 56px; }
 .bots-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
 }
 .bot-tile {
   background: #0e1118;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 10px;
-  min-height: 92px;
+  padding: 8px;
 }
 .bot-tile-head { display: flex; align-items: center; gap: 8px; }
 .bot-tile-head .name { font-weight: 700; font-size: 13px; flex: 1; }
@@ -175,3 +174,8 @@ table.settings tbody th { font-weight: 500; text-align: left; }
 .hold-row:last-child { border-bottom: 0; }
 .hold-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .hold-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+#page-home .card { margin-bottom: 8px; padding: 10px 12px; }
+#page-home .empty { padding: 12px 8px; }
+#page-home .bot-tile .action { font-size: 11px; margin-top: 4px; }
+#page-home .pill { font-size: 9px; padding: 1px 5px; }
